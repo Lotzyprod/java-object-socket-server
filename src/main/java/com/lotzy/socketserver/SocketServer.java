@@ -1,13 +1,20 @@
 package com.lotzy.socketserver;
 
 import com.lotzy.socketserver.ClientThread.ClientListener;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
+import java.net.URL;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class SocketServer extends Thread implements ClientListener {
     public interface ServerListener {
@@ -42,9 +49,7 @@ public class SocketServer extends Thread implements ClientListener {
                 client.addListener(this);
                 clients.add(client);
                 client.start();
-            } catch (IOException ex) {
-                Logger.getLogger(SocketServer.class.getName()).log(Level.SEVERE, null, ex);
-            }  
+            } catch (IOException ex) {}  
         }
     }
     
@@ -104,6 +109,41 @@ public class SocketServer extends Thread implements ClientListener {
             listener.onInvalidPacketFromClient(client);
     };
     
+    public static InetAddress getExternalAddress() {
+        try {
+            URL url = new URL("http://checkip.amazonaws.com/");
+            BufferedReader br = new BufferedReader(new InputStreamReader(url.openStream()));
+            String ip = br.readLine();
+            return InetAddress.getByName(ip);
+        } catch (IOException ex) {}
+        return null;
+    }
+    public static List<InetAddress> getLocalV4Addresses() {
+        List<InetAddress> addresses = new ArrayList<>();
+        Enumeration networkInterfaces;
+        try {
+            networkInterfaces = NetworkInterface.getNetworkInterfaces();
+        } catch (SocketException ex) {
+            return addresses;
+        }
+        while(networkInterfaces.hasMoreElements()){
+            NetworkInterface networkInterface = (NetworkInterface) networkInterfaces.nextElement();
+            Enumeration inetAddresses = networkInterface.getInetAddresses();
+            
+            while(inetAddresses.hasMoreElements()) {
+                InetAddress inetAddress= (InetAddress) inetAddresses.nextElement();
+                if (inetAddress instanceof Inet6Address) continue;
+                addresses.add(inetAddress);
+            }
+        }
+        return addresses;
+    }
     
+    public static InetAddress getIpFromDomain(String domain) {
+        try {
+            return InetAddress.getByName(domain);
+        } catch (UnknownHostException ex) {}
+        return null;
+    }    
     
 }
