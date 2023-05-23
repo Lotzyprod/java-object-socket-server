@@ -51,14 +51,12 @@ public class ClientThread extends Thread {
             listener.onConnection(this);
         while(this.connected) {
             try {
-                try {
-                    Object packet = in.readObject();
-                    for(ClientListener  listener : listeners)
-                        listener.onReceivePacket(this,packet);
-                } catch (ClassNotFoundException ex) {
-                    for(ClientListener  listener : listeners)
-                        listener.onInvalidPacket(this);
-                }
+                Object packet = in.readObject();
+                for(ClientListener  listener : listeners)
+                    listener.onReceivePacket(this,packet);
+            } catch (ClassNotFoundException ex) {
+                for(ClientListener  listener : listeners)
+                    listener.onInvalidPacket(this);
             } catch (IOException ex) {
                 disconnect();
                 for(ClientListener listener : listeners)
@@ -71,6 +69,7 @@ public class ClientThread extends Thread {
         if (this.socket != null) {
             try {
                 this.out.writeObject(object);
+                this.out.flush();
                 for(ClientListener listener : listeners)
                     listener.onSendPacket(this, object, true);
                 return true;
