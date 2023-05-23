@@ -46,25 +46,43 @@ public class SocketClient extends Thread {
         return this.connected;
     }
     
+    public int getReconnectionTime() {
+        return this.reconnectionTime;
+    }
+    
+    public Socket getSocket() {
+        return this.socket;
+    }
+    
     @Override
     public void run() {
-        reconnect();
+        try {
+            connect();
+        } catch (IOException ex) {
+            reconnect();
+        }
         while(true) {
             try {
-                try {
-                    Object packet = in.readObject();
-                    for(ClientListener listener : listeners)
-                        listener.onReceivePacket(packet);
-                } catch (ClassNotFoundException ex) {
-                    for(ClientListener listener : listeners)
-                        listener.onInvalidPacket();
-                }
+                Object packet = in.readObject();
+                for(ClientListener listener : listeners)
+                    listener.onReceivePacket(packet);
+            } catch (ClassNotFoundException ex) {
+                for(ClientListener listener : listeners)
+                    listener.onInvalidPacket();
             } catch (IOException ex) {
                 for(ClientListener listener : listeners)
                     listener.onDisconnection();
                 reconnect();
             }
         }
+    }
+    public void connect() throws IOException {
+        this.socket = new Socket(this.host, this.port);
+        this.out = new ObjectOutputStream(socket.getOutputStream());
+        this.in = new ObjectInputStream(socket.getInputStream());
+        this.connected = true;
+        for(ClientListener listener : listeners)
+            listener.onConnection((InetSocketAddress)this.socket.getRemoteSocketAddress());
     }
     
     public void reconnect() {
@@ -73,23 +91,21 @@ public class SocketClient extends Thread {
             if (this.out != null) this.out.close();
             if (this.in != null) this.in.close();
             if (this.socket != null) this.socket.close();
+            this.out = null;
+            this.in = null;
+            this.socket = null;
         } catch (IOException ex) {}
+        
         while (true) {
+            for(ClientListener listener : listeners)
+                listener.onReconnection();
             try {
-                this.socket = new Socket(this.host, this.port);
-                this.out = new ObjectOutputStream(socket.getOutputStream());
-                this.in = new ObjectInputStream(socket.getInputStream());
-                this.connected = true;
-                for(ClientListener listener : listeners)
-                    listener.onConnection((InetSocketAddress)this.socket.getRemoteSocketAddress());
+                Thread.sleep(this.reconnectionTime);
+            } catch (InterruptedException ex) {}
+            try {
+                connect();
                 return;
-            } catch (IOException ex) {
-                try {
-                    for(ClientListener listener : listeners)
-                        listener.onReconnection();
-                    Thread.sleep(this.reconnectionTime);
-                } catch (InterruptedException ex1) {}
-            }
+            } catch (IOException ex) {}
         }
     }
     
@@ -97,6 +113,7 @@ public class SocketClient extends Thread {
         if (this.socket != null && this.out != null) {
             try {
                 this.out.writeObject(object);
+                this.out.flush();
                 for(ClientListener listener : listeners)
                     listener.onSendPacket(object, true);
                 return true;
