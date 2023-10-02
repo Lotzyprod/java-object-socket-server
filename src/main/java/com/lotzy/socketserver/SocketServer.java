@@ -1,6 +1,6 @@
 package com.lotzy.socketserver;
 
-import com.lotzy.socketserver.ClientThread.ClientListener;
+import com.lotzy.socketserver.SocketClientThread.SocketClientListener;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -13,39 +13,44 @@ import java.net.SocketException;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class SocketServer extends Thread implements ClientListener {
+public class SocketServer implements Runnable,SocketClientListener {
     public interface ServerListener {
-        default public void onClientConnection(ClientThread client) {};
-        default public void onClientDisconnection(ClientThread client) {};
-        default public void onReceivePacketFromClient(ClientThread client, Object object) {};
-        default public void onSendPacketToClient(ClientThread client,Object object, boolean sended) {};
-        default public void onInvalidPacketFromClient(ClientThread client) {};
-        default public void onClientClose(ClientThread client) {};
+        default public void onClientConnection(SocketClientThread client) {};
+        default public void onClientDisconnection(SocketClientThread client) {};
+        default public void onReceivePacketFromClient(SocketClientThread client, Object object) {};
+        default public void onSendPacketToClient(SocketClientThread client,Object object, boolean sended) {};
+        default public void onInvalidPacketFromClient(SocketClientThread client) {};
+        default public void onClientClose(SocketClientThread client) {};
         default public void onClose() {};
     }
     
     ServerSocket server;
-    List<ClientThread> clients = new ArrayList();
+    boolean enabled = true;
     
-    List<ServerListener> listeners = new ArrayList();
+    Set<SocketClientThread> clients = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private Set<ServerListener> listeners = Collections.newSetFromMap(new ConcurrentHashMap<>());
     
     public void addListener(ServerListener toAdd) {
         listeners.add(toAdd);
     }
     
     public SocketServer(int port) throws IOException {
-        server = new ServerSocket(port);
+        this.server = new ServerSocket(port);
+        this.server.setSoTimeout(0);
     }
     
     @Override
     public void run() {
-        while(true) {
+        while(this.enabled) {
             try {
                 Socket socket = server.accept();
-                ClientThread client = new ClientThread(socket);
+                SocketClientThread client = new SocketClientThread(socket);
                 client.addListener(this);
                 clients.add(client);
                 client.start();
@@ -57,56 +62,49 @@ public class SocketServer extends Thread implements ClientListener {
         return this.server;
     }
     
-    public List<ClientThread> getClients() {
+    public Set<SocketClientThread> getClients() {
         return this.clients;
     }
     
     public void close() {
-        if (!this.isInterrupted()) this.interrupt();
-        for(ClientThread client : clients) client.close();
+        this.clients.forEach(client -> client.close());
+        enabled = false;
         if (server != null) try {
             server.close();
         } catch (IOException ex) {}
-        for(ServerListener listener : this.listeners)
-            listener.onClose();
+        this.listeners.forEach(listener -> listener.onClose());
     }
     
     @Override
-    public void onDisconnection(ClientThread client) {
+    public void onDisconnection(SocketClientThread client) {
         this.clients.remove(client);
-        for(ServerListener listener : this.listeners)
-            listener.onClientDisconnection(client);
+        this.listeners.forEach(listener -> listener.onClientDisconnection(client));
     }
     
     @Override
-    public void onClose(ClientThread client) {
+    public void onClose(SocketClientThread client) {
         this.clients.remove(client);
-        for(ServerListener listener : this.listeners)
-            listener.onClientClose(client);
+        this.listeners.forEach(listener -> listener.onClientClose(client));
     }
     
     @Override
-    public void onConnection(ClientThread client) {
-        for(ServerListener listener : this.listeners)
-            listener.onClientConnection(client);
+    public void onConnection(SocketClientThread client) {
+        this.listeners.forEach(listener -> listener.onClientConnection(client));
     }
     
     @Override
-    public void onReceivePacket(ClientThread client, Object object) {
-        for(ServerListener listener : this.listeners)
-            listener.onReceivePacketFromClient(client, object);
+    public void onReceivePacket(SocketClientThread client, Object object) {
+        this.listeners.forEach(listener -> listener.onReceivePacketFromClient(client, object));
     }
     
     @Override
-    public void onSendPacket(ClientThread client,Object object, boolean sended) {
-        for(ServerListener listener : this.listeners)
-            listener.onSendPacketToClient(client, object, sended);
+    public void onSendPacket(SocketClientThread client,Object object, boolean sended) {
+        this.listeners.forEach(listener -> listener.onSendPacketToClient(client, object, sended));
     }
     
     @Override
-    public void onInvalidPacket(ClientThread client) {
-        for(ServerListener listener : this.listeners)
-            listener.onInvalidPacketFromClient(client);
+    public void onInvalidPacket(SocketClientThread client) {
+        this.listeners.forEach(listener -> listener.onInvalidPacketFromClient(client));
     };
     
     public static InetAddress getExternalAddress() {
@@ -118,6 +116,7 @@ public class SocketServer extends Thread implements ClientListener {
         } catch (IOException ex) {}
         return null;
     }
+    
     public static List<InetAddress> getLocalV4Addresses() {
         List<InetAddress> addresses = new ArrayList<>();
         Enumeration networkInterfaces;
