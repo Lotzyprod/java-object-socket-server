@@ -11,7 +11,7 @@ public class Main implements ClientListener {
         SocketClient client = new SocketClient("localhost",1337,5000);
         client.addListener(new Main());
         
-        client.start();
+        new Thread(client).start();
         
         while (true) {
             while(!client.isConnected()) {

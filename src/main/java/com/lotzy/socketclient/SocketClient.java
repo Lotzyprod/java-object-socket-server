@@ -5,10 +5,12 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class SocketClient extends Thread {
+
+public class SocketClient implements Runnable {
     public interface ClientListener {
         default public void onConnection(InetSocketAddress address) {};
         default public void onDisconnection() {};
@@ -26,11 +28,12 @@ public class SocketClient extends Thread {
     ObjectInputStream in = null;
     ObjectOutputStream out = null;
     
+    boolean enabled = true;
     boolean connected = false;
     
     int reconnectionTime;
     
-    private List<ClientListener> listeners = new ArrayList();
+    private Set<ClientListener> listeners = Collections.newSetFromMap(new ConcurrentHashMap<>());
     
     public SocketClient(String host, int port, int reconnectionTime) {
         this.host = host;
@@ -39,11 +42,15 @@ public class SocketClient extends Thread {
     }
     
     public void addListener(ClientListener toAdd) {
-        listeners.add(toAdd);
+        this.listeners.add(toAdd);
     }
     
     public boolean isConnected() {
         return this.connected;
+    }
+    
+    public boolean isClosed() {
+        return !this.enabled;
     }
     
     public int getReconnectionTime() {
@@ -57,31 +64,34 @@ public class SocketClient extends Thread {
     @Override
     public void run() {
         try {
-            connect();
+            this.connect();
         } catch (IOException ex) {
-            reconnect();
+            this.reconnect();
         }
-        while(true) {
+        while(this.enabled) {
             try {
-                Object packet = in.readObject();
-                for(ClientListener listener : listeners)
+                Object packet = this.in.readObject();
+                for(ClientListener listener : this.listeners)
                     listener.onReceivePacket(packet);
             } catch (ClassNotFoundException ex) {
-                for(ClientListener listener : listeners)
+                for(ClientListener listener : this.listeners)
                     listener.onInvalidPacket();
             } catch (IOException ex) {
-                for(ClientListener listener : listeners)
-                    listener.onDisconnection();
-                reconnect();
+                if (this.enabled) {
+                    for(ClientListener listener : this.listeners)
+                        listener.onDisconnection();
+                    this.reconnect();
+                }
             }
         }
     }
     public void connect() throws IOException {
         this.socket = new Socket(this.host, this.port);
+        this.socket.setSoTimeout(0);
         this.out = new ObjectOutputStream(socket.getOutputStream());
         this.in = new ObjectInputStream(socket.getInputStream());
         this.connected = true;
-        for(ClientListener listener : listeners)
+        for(ClientListener listener : this.listeners)
             listener.onConnection((InetSocketAddress)this.socket.getRemoteSocketAddress());
     }
     
@@ -96,14 +106,14 @@ public class SocketClient extends Thread {
             this.socket = null;
         } catch (IOException ex) {}
         
-        while (true) {
-            for(ClientListener listener : listeners)
+        while (this.enabled) {
+            for(ClientListener listener : this.listeners)
                 listener.onReconnection();
             try {
                 Thread.sleep(this.reconnectionTime);
             } catch (InterruptedException ex) {}
             try {
-                connect();
+                this.connect();
                 return;
             } catch (IOException ex) {}
         }
@@ -114,25 +124,26 @@ public class SocketClient extends Thread {
             try {
                 this.out.writeObject(object);
                 this.out.flush();
-                for(ClientListener listener : listeners)
+                for(ClientListener listener : this.listeners)
                     listener.onSendPacket(object, true);
                 return true;
             } catch (IOException ex) {} 
         }
-        for(ClientListener listener : listeners)
+        for(ClientListener listener : this.listeners)
             listener.onSendPacket(object, false);
         return false;
     }
     
     public void close() {
+        if (!this.enabled) return;
+        this.enabled = false;
         try {
             if (out != null) this.out.close();
             if (in != null) this.in.close();
-             if (socket != null) socket.close();
+            if (socket != null) socket.close();
         } catch (IOException ex) {}
-        for(ClientListener listener : listeners)
+        this.connected = false;
+        for(ClientListener listener : this.listeners)
             listener.onClose();
-        if (!this.isInterrupted()) this.interrupt();
     }
 }
-
