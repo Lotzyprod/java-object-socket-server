@@ -11,7 +11,7 @@ public class Main implements ServerListener {
     public static void main(String[] args) throws IOException {
         SocketServer server = new SocketServer(1337);
         server.addListener(new Main());
-        server.start();
+        new Thread(server).start();
         while (true) {
             Scanner keyboard = new Scanner(System.in);
             System.out.println("enter an integer");
@@ -21,19 +21,19 @@ public class Main implements ServerListener {
     }
     
     @Override
-    public void onClientConnection(ClientThread client) {
+    public void onClientConnection(SocketClientThread client) {
         InetSocketAddress address = (InetSocketAddress)client.getSocket().getRemoteSocketAddress();
         System.out.println("Connected client with address: "+ address.getAddress().getHostAddress()+":"+address.getPort());
     }
     
     @Override
-    public void onReceivePacketFromClient(ClientThread client, Object packet) {
+    public void onReceivePacketFromClient(SocketClientThread client, Object packet) {
         InetSocketAddress address = (InetSocketAddress)client.getSocket().getRemoteSocketAddress();
         System.out.println("Got packet { "+ packet.toString() +" } from client with address: "+ address.getAddress().getHostAddress()+":"+address.getPort());
     }
     
     @Override
-    public void onClientDisconnection(ClientThread client) {
+    public void onClientDisconnection(SocketClientThread client) {
         InetSocketAddress address = (InetSocketAddress)client.getSocket().getRemoteSocketAddress();
         System.out.println("Disconnected client with address: "+ address.getAddress().getHostAddress()+":"+address.getPort());
     }
